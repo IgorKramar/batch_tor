@@ -206,6 +206,7 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxy: &str
 
 /// The main entry point of the program. It parses the CLI arguments, extracts magnet links and proxies,
 /// runs the race to find a valid proxy, and starts the torrent download using the first valid proxy found.
+/// Each magnet link is downloaded in a separate asynchronous task.
 ///
 /// # Asynchronous Execution
 ///
@@ -234,9 +235,22 @@ async fn main() {
     // Runs the race to find the first valid proxy.
     if let Some(valid_proxy) = find_valid_proxy(proxies, Arc::clone(&bar)).await {
         bar.finish();  // Finishes the progress bar once a valid proxy is found or all proxies are checked.
+        
+        // Downloads each torrent in a separate asynchronous task.
+        let mut tasks = vec![];
         for link in magnet_links {
-            download_torrent_via_socks(&link, &args.download_dir, &valid_proxy);
+            let download_dir = args.download_dir.clone();
+            let valid_proxy = valid_proxy.clone();
+            tasks.push(tokio::spawn(async move {
+                download_torrent_via_socks(&link, &download_dir, &valid_proxy);
+            }));
         }
+
+        // Wait for all download tasks to complete.
+        for task in tasks {
+            task.await.unwrap();
+        }
+
     } else {
         println!("No valid proxies found.");
     }
