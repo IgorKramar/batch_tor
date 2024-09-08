@@ -116,7 +116,7 @@ async fn check_proxy_with_curl(proxy: String) -> Option<String> {
 }
 
 /// Runs a race to find the first valid SOCKS5 proxy from the list.
-/// Multiple proxy checks are spawned concurrently, and the function returns the first valid proxy found.
+/// Once a valid proxy is found, the remaining tasks are canceled to save resources.
 /// If no valid proxy is found, the function returns `None`.
 ///
 /// # Arguments
@@ -129,22 +129,34 @@ async fn check_proxy_with_curl(proxy: String) -> Option<String> {
 /// An `Option<String>` containing the first valid proxy, or `None` if no valid proxies are found.
 async fn find_valid_proxy(proxies: Vec<String>, bar: Arc<ProgressBar>) -> Option<String> {
     let (tx, mut rx) = mpsc::channel(1);  // A channel to send the result back to the main thread.
+    let mut tasks = vec![];
 
+    // Spawn a task for each proxy to check it concurrently.
     for proxy in proxies {
         let tx = tx.clone();
         let bar = Arc::clone(&bar);
-        task::spawn(async move {
-            let result = check_proxy_with_curl(proxy.clone()).await;
+        let proxy_clone = proxy.clone();
+
+        let handle = task::spawn(async move {
+            let result = check_proxy_with_curl(proxy_clone).await;
             if result.is_some() {
-                let _ = tx.send(result).await;  // Sends the first valid proxy back through the channel.
+                let _ = tx.send(result).await;  // Send the first valid proxy to the main thread.
             }
-            bar.inc(1);  // Increments the progress bar after each proxy check.
+            bar.inc(1);  // Update the progress bar.
         });
+
+        tasks.push(handle);
     }
 
-    drop(tx);  // Closes the sending side of the channel when all tasks are spawned.
+    // Wait for the first successful proxy.
+    let result = rx.recv().await;
 
-    rx.recv().await.flatten()  // Receives and returns the first valid proxy, flattening nested Option<Option<T>>.
+    // Cancel all remaining tasks.
+    for handle in tasks {
+        handle.abort();
+    }
+
+    result.flatten()
 }
 
 /// Downloads a torrent file using the first valid SOCKS5 proxy found.
@@ -179,7 +191,7 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxy: &str
     let stdout_reader = io::BufReader::new(stdout);
     let stderr_reader = io::BufReader::new(stderr);
 
-    // Processes and prints stdout in real-time.
+    // Read stdout and print in real-time.
     for line in stdout_reader.lines() {
         match line {
             Ok(line) => {
@@ -190,7 +202,7 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxy: &str
         }
     }
 
-    // Processes and prints stderr in real-time.
+    // Read stderr and print in real-time.
     for line in stderr_reader.lines() {
         match line {
             Ok(line) => {
