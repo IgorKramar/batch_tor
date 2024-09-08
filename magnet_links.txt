@@ -1,2 +1,0 @@
-magnet:?xt=urn:btih:6378E6F3B3F69635C7F299B83551061AADD942E1&tr=http%3A%2F%2Fbt4.t-ru.org%2Fann%3Fmagnet&dn=Al%20Sweigart%20%2F%20Эл%20Свейгарт%20-%20Cracking%20Codes%20with%20Python%20%2F%20Криптография%20и%20взлом%20шифров%20на%20Python%20%5B2020%2C%20PDF%2C%20RUS%5D
-magnet:?xt=urn:btih:1DAB2C8A784BAEFBD8D315F822F5344CA99C134E&tr=http%3A%2F%2Fbt2.t-ru.org%2Fann%3Fmagnet&dn=Российский%20компьютерный%20бестселлер.%20Гейм-дизайн%20-%20Максименкова%20О.%2C%20Веселко%20Н.%20-%20Программирование%20в%20Unreal%20Engine%205%20для%20начинающего%20игродела%3A%20основы%20ви
