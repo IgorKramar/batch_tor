@@ -1,14 +1,28 @@
+use clap::Parser;
+use indicatif::ProgressBar;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
 use std::thread;
 
-/// Reads the given file and extracts magnet links from it.
-/// Only lines starting with "magnet:" are considered valid links.
-/// 
-/// # Arguments
-/// 
-/// * `filename` - A string slice that holds the name of the file with magnet links.
+/// CLI arguments structure
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to the magnet links file
+    #[arg(short, long, default_value = "magnet_links.txt")]
+    magnet_file: String,
+
+    /// Path to the SOCKS5 proxies file
+    #[arg(short, long, default_value = "socks.txt")]
+    socks_file: String,
+
+    /// Directory to save downloaded torrents
+    #[arg(short, long, default_value = "/home/hombre/Torrents")]
+    download_dir: String,
+}
+
+/// Reads the given file and extracts magnet links.
 fn extract_magnet_links(filename: &str) -> Vec<String> {
     let file = File::open(filename).expect("Failed to open magnet links file");
     let reader = io::BufReader::new(file);
@@ -24,11 +38,6 @@ fn extract_magnet_links(filename: &str) -> Vec<String> {
 }
 
 /// Reads the list of SOCKS5 proxies from a file.
-/// Each line is considered to be a proxy address in the format `IP:PORT`.
-/// 
-/// # Arguments
-/// 
-/// * `filename` - A string slice that holds the name of the file with proxy addresses.
 fn extract_socks_proxies(filename: &str) -> Vec<String> {
     let file = File::open(filename).expect("Failed to open proxy list file");
     let reader = io::BufReader::new(file);
@@ -43,13 +52,7 @@ fn extract_socks_proxies(filename: &str) -> Vec<String> {
     proxies
 }
 
-/// Saves the remaining valid proxies back to the original file, overwriting the old list.
-/// This ensures that invalid proxies are no longer retried.
-/// 
-/// # Arguments
-/// 
-/// * `filename` - The name of the file to write the valid proxies back into.
-/// * `proxies` - A vector of valid proxy addresses to be written to the file.
+/// Saves the remaining valid proxies back to the original file.
 fn save_socks_proxies(filename: &str, proxies: &[String]) {
     let mut file = File::create(filename).expect("Failed to recreate the proxy list file");
     for proxy in proxies {
@@ -57,16 +60,7 @@ fn save_socks_proxies(filename: &str, proxies: &[String]) {
     }
 }
 
-/// Checks if a SOCKS5 proxy is functional by attempting to connect to rutracker.org via curl.
-/// This is done by specifying the proxy with curl's `-x` option and attempting an HTTPS connection.
-/// 
-/// # Arguments
-/// 
-/// * `proxy` - A string slice representing the proxy in `IP:PORT` format.
-/// 
-/// # Returns
-/// 
-/// * `bool` - Returns true if the proxy passed the curl check, otherwise false.
+/// Checks if a SOCKS5 proxy is functional via curl.
 fn check_proxy_with_curl(proxy: &str) -> bool {
     println!("Checking proxy via curl: {}", proxy);
 
@@ -75,9 +69,9 @@ fn check_proxy_with_curl(proxy: &str) -> bool {
         .arg(format!("socks5h://{}", proxy))
         .arg("https://rutracker.org")
         .arg("--max-time")
-        .arg("10")  // Timeout set to 10 seconds
-        .stdout(Stdio::null()) // Suppress output
-        .stderr(Stdio::null()) // Suppress error output
+        .arg("10")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 
     match status {
@@ -98,30 +92,28 @@ fn check_proxy_with_curl(proxy: &str) -> bool {
 }
 
 /// Attempts to download a torrent file through a SOCKS5 proxy using transmission-cli.
-/// If the proxy passes the curl check, it is added to the list of valid proxies and used for downloading.
-/// The function processes stdout and stderr streams in real-time.
-/// 
-/// # Arguments
-/// 
-/// * `magnet_link` - A string slice containing the magnet link of the torrent to download.
-/// * `download_dir` - A string slice representing the directory where files should be downloaded.
-/// * `proxies` - A mutable reference to a vector of proxy addresses.
-/// * `socks_file` - A string slice representing the proxy file that will be updated with valid proxies.
-fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxies: &mut Vec<String>, socks_file: &str) {
+fn download_torrent_via_socks(
+    magnet_link: &str,
+    download_dir: &str,
+    proxies: &mut Vec<String>,
+    socks_file: &str,
+    bar: &ProgressBar,
+) {
     println!("Starting download for magnet link: {}", magnet_link);
-    io::stdout().flush().unwrap(); // Flush buffer to ensure the message is printed immediately
+    io::stdout().flush().unwrap();
 
     let mut valid_proxies = Vec::new();
 
     for proxy in proxies.iter() {
         if !check_proxy_with_curl(proxy) {
+            bar.inc(1); // Update progress for failed proxy
             continue; // Skip proxies that fail the curl check
         }
 
-        valid_proxies.push(proxy.clone()); // Store valid proxy
+        valid_proxies.push(proxy.clone());
 
         println!("Proxy {} passed, starting transmission-cli", proxy);
-        io::stdout().flush().unwrap(); // Ensure immediate printing
+        io::stdout().flush().unwrap();
 
         let mut child = Command::new("transmission-cli")
             .arg(magnet_link)
@@ -130,15 +122,14 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxies: &m
             .arg("--no-incomplete")
             .arg("--debug")
             .env("ALL_PROXY", format!("socks5://{}", proxy))
-            .stderr(Stdio::piped()) // Capture stderr
-            .stdout(Stdio::piped()) // Capture stdout
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .expect("Failed to start transmission-cli");
 
         let stdout = child.stdout.take().expect("Failed to capture stdout");
         let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-        // Read stdout in real-time
         let stdout_reader = io::BufReader::new(stdout);
         let stderr_reader = io::BufReader::new(stderr);
 
@@ -147,7 +138,7 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxies: &m
                 match line {
                     Ok(line) => {
                         println!("{}", line);
-                        io::stdout().flush().unwrap(); // Flush after every line
+                        io::stdout().flush().unwrap();
                     }
                     Err(err) => eprintln!("Error reading stdout: {}", err),
                 }
@@ -159,7 +150,7 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxies: &m
                 match line {
                     Ok(line) => {
                         eprintln!("{}", line);
-                        io::stderr().flush().unwrap(); // Flush after every line
+                        io::stderr().flush().unwrap();
                     }
                     Err(err) => eprintln!("Error reading stderr: {}", err),
                 }
@@ -172,42 +163,43 @@ fn download_torrent_via_socks(magnet_link: &str, download_dir: &str, proxies: &m
 
         if status.success() {
             println!("Download succeeded via proxy: {}", proxy);
-            break; // Stop once the download succeeds
+            break;
         } else {
             println!("Download failed via proxy: {}", proxy);
         }
+        bar.inc(1); // Update progress after each proxy attempt
     }
 
-    // Overwrite the proxy file with the valid proxies
     save_socks_proxies(socks_file, &valid_proxies);
-
     println!("Finished processing proxies.");
-    io::stdout().flush().unwrap(); // Ensure all output is printed
+    io::stdout().flush().unwrap();
 }
 
 fn main() {
-    let txt_file = "magnet_links.txt"; // File with magnet links
-    let socks_file = "socks.txt";      // File with SOCKS5 proxies
-    let download_dir = "/home/hombre/Torrents"; // Directory for downloading torrents
+    let args = Args::parse(); // Parse CLI arguments
 
-    // Step 1: Extract magnet links from the file
-    let magnet_links = extract_magnet_links(txt_file);
+    // Extract magnet links
+    let magnet_links = extract_magnet_links(&args.magnet_file);
     if magnet_links.is_empty() {
         println!("No magnet links found.");
         return;
     }
 
-    // Step 2: Extract the list of SOCKS5 proxies
-    let mut proxies = extract_socks_proxies(socks_file);
+    // Extract SOCKS5 proxies
+    let mut proxies = extract_socks_proxies(&args.socks_file);
     if proxies.is_empty() {
         println!("No proxies found.");
         return;
     }
 
-    // Step 3: Attempt to download each magnet link using available proxies
+    // Set up progress bar
+    let bar = ProgressBar::new(proxies.len() as u64);
+
+    // Attempt to download each magnet link
     for link in magnet_links {
-        download_torrent_via_socks(&link, download_dir, &mut proxies, socks_file);
+        download_torrent_via_socks(&link, &args.download_dir, &mut proxies, &args.socks_file, &bar);
     }
 
-    println!("All files downloaded to directory: {}", download_dir);
+    bar.finish();
+    println!("All files downloaded to directory: {}", args.download_dir);
 }

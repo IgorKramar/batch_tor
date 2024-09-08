@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.17", features = ["derive"] }
 glob = "0.3.1"
+indicatif = "0.17.8"
 socks = "0.3.4"
 tokio = { version = "1.40.0", features = ["full"] }
 zip = "2.2.0"
