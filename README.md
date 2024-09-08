@@ -30,10 +30,42 @@ This project is a SOCKS5 proxy-based torrent downloader with a customizable comm
    cd <repository-directory>
    ```
 
-## Usage
+
+## How to Use
+
+1. **Prepare the Files**:
+
+   - `magnet_links.txt`: A file containing magnet links (one per line).
+   - `socks.txt`: A file containing a list of SOCKS5 proxies in the format `IP:PORT` (one per line).
+
+2. **Run the Program**:
 
 ```bash
 cargo run -- --magnet-file="magnet_links.txt" --socks-file="socks.txt" --download-dir="/path/to/download"
 ```
 
-The program will cycle through the SOCKS5 proxies listed in `socks.txt`, download torrents specified in `magnet_links.txt`, and save the files to `/path/to/download`.
+3. **Process**:
+
+   The program will cycle through the SOCKS5 proxies listed in `socks.txt`, download torrents specified in `magnet_links.txt`, and save the files to `/path/to/download`.
+
+## Example `magnet_links.txt`
+
+```txt
+magnet:?xt=urn:btih:EXAMPLEHASH&dn=Example+Torrent+Name
+magnet:?xt=urn:btih:ANOTHERHASH&dn=Another+Torrent+Name
+```
+
+## Example `socks.txt`
+
+```txt
+192.168.1.100:1080
+123.456.789.10:8080
+```
+
+## Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests for improvements.
+
+## License
+
+This project is licensed under the MIT License.
